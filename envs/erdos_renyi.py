@@ -51,4 +51,3 @@ class ErdosRenyi(CausalEnvironment):
 
 	def dag(self):
 		return graphical_models.DAG.from_nx(self.graph)
-

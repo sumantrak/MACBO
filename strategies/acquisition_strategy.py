@@ -3,12 +3,13 @@ from .value_acquisition_strategy import (
     MarginalDistValueAcquisitionStrategy,
     FixedValueAcquisitionStrategy,
     GridValueAcquisitionStrategy,
-    LinspacePlot
+    LinspacePlot,
+    UniformMaxValueAcquisitionStrategy
 )
 from collections import defaultdict
 from envs.samplers import Constant
 
-value_acquistion_strategies = {"gp-ucb": BOValueAcquisitionStrategy, "sample-dist": MarginalDistValueAcquisitionStrategy, "fixed": FixedValueAcquisitionStrategy, "grid": GridValueAcquisitionStrategy, "linspace-plot": LinspacePlot}
+value_acquistion_strategies = {"gp-ucb": BOValueAcquisitionStrategy, "sample-dist": MarginalDistValueAcquisitionStrategy, "fixed": FixedValueAcquisitionStrategy, "grid": GridValueAcquisitionStrategy, "linspace-plot": LinspacePlot, "unimax":UniformMaxValueAcquisitionStrategy}
 
 
 class AcquisitionStrategy(object):
@@ -16,9 +17,9 @@ class AcquisitionStrategy(object):
         self.model = model
         self.args = args
         self.num_samples = args.num_samples
-        self.batch_size = args.batch_size
         self.env = env
         self.value_strategy = args.value_strategy
+        self.reward_node = args.reward_node
 
     def acquire(self, nodes, iteration):
         strategy = self.get_value_strategy(nodes)
@@ -26,7 +27,7 @@ class AcquisitionStrategy(object):
 
         selected_interventions = defaultdict(list)
 
-        selected_interventions[strategy.max_j].extend([Constant(strategy.max_x)]*self.batch_size)
+        selected_interventions[strategy.max_j].extend([Constant(strategy.max_x)])
 
         return selected_interventions
 

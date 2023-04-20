@@ -21,8 +21,8 @@ class ValueAcquisitionStrategy(object):
         self.extra = [{}]*len(self.nodes)
 
         for i in range(n_iters):
-            value_samplers = [Constant(self.values[i][node]) for node in self.nodes]
-            self.target[i], self.extra[i] = func(self.nodes, value_samplers, **kargs)
+            value_samplers = [self.values[i][node] for node in self.nodes]
+            self.target[i], _ = func(self.nodes, value_samplers, **kargs)
 
         self.func_max = np.amax(self.target)
         _max_x_idx, _max_j_idx = np.unravel_index(
@@ -36,6 +36,11 @@ class ValueAcquisitionStrategy(object):
 
         return self
 
+class UniformMaxValueAcquisitionStrategy(ValueAcquisitionStrategy):
+    def __init__(self, nodes, args):
+        super().__init__(nodes, args)
+        self.intervention_value_prior = lambda size: np.random.uniform(-10,10,size=(size, args.num_nodes))
+        self._force_iters = 100
 
 class BOValueAcquisitionStrategy(ValueAcquisitionStrategy):
     def __init__(self, nodes, args):
@@ -130,7 +135,6 @@ class LinspacePlot(ValueAcquisitionStrategy):
         self.extra = [{}]*n_iters
 
         for i in range(n_iters):
-            print(i)
             value_samplers = [Constant(self.values[i])]*len(self.nodes)
             self.target[i], self.extra[i] = func(self.nodes, value_samplers, **kargs)
 

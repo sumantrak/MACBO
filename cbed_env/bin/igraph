@@ -1,0 +1,4 @@
+#!/Users/agango/Desktop/thesis-project/cbed/cbed_env/bin/python3
+"""Small script to execute the igraph command line interface"""
+from igraph.app.shell import main
+main()
