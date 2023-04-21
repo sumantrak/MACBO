@@ -30,7 +30,7 @@ class ErdosRenyi(CausalEnvironment):
 				self.graph = nx.generators.random_graphs.fast_gnp_random_graph(num_nodes, p, directed = True, seed = seed*count)
 			else:
 				self.graph = nx.generators.random_graphs.gnp_random_graph(num_nodes, p, directed = True, seed = seed*count)
-			acyclic = expm_np(nx.to_numpy_matrix(self.graph), num_nodes) == 0
+			acyclic = expm_np(nx.to_numpy_array(self.graph), num_nodes) == 0
 			if acyclic:
 				mmec = num_mec(self.graph) >=2
 			count += 1
