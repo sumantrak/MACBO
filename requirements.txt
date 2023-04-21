@@ -5,7 +5,7 @@ ipdb
 torch
 xarray
 cdt
-git+https://github.com/fmfn/BayesianOptimization
 pgmpy
 igraph
 wandb
+typing_extensions

@@ -1,4 +1,4 @@
-from bayes_opt import BayesianOptimization, UtilityFunction
+#from bayes_opt import BayesianOptimization, UtilityFunction
 import numpy as np
 from envs.samplers import Constant
 
