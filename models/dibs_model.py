@@ -349,6 +349,10 @@ class DiBS_Linear(PosteriorModel):
             key=subk, n_particles=self.n_particles, model = self.inference_model, n_vars=self.num_nodes
         )
 
+        particles_z, particles_w = self.model.sample_initial_random_particles(
+            key=subk, n_particles=20, model = self.inference_model, n_vars=4
+        )
+
     def update(self, data):
         data_samples = jnp.array(data.samples)
         interv_targets = jnp.zeros((data_samples.shape[0], self.num_nodes)).astype(bool)
@@ -371,15 +375,28 @@ class DiBS_Linear(PosteriorModel):
             data=data_samples,
             interv_targets=interv_targets,
         )
-        self.update_dist(data_samples, interv_targets)
+        # self.update_dist(data_samples, interv_targets)
+        self.update_dist()
 
-    def update_dist(self, data, interv_targets):
+    # def update_dist(self, data, interv_targets):
+    #     particles_g = self.model.particle_to_g_lim(self.particles_z)
+    #     # self.dibs_empirical = particle_marginal_empirical(particles_g)
+    #     self.posterior = particle_joint_mixture(
+    #         particles_g, self.particles_w, self.eltwise_log_prob, data, interv_targets
+    #     )
+    #     self.dags = self.posterior[0]
+
+    def update_dist(self):
         particles_g = self.model.particle_to_g_lim(self.particles_z)
-        # self.dibs_empirical = particle_marginal_empirical(particles_g)
-        self.posterior = particle_joint_mixture(
-            particles_g, self.particles_w, self.eltwise_log_prob, data, interv_targets
-        )
-        self.dags = self.posterior[0]
+        _posterior = particle_joint_empirical(particles_g, self.particles_w)
+
+        is_dag = elwise_acyclic_constr_nograd(_posterior[0], self.num_nodes) == 0
+        self.all_graphs = _posterior[0]
+        self.dags = _posterior[0][is_dag, :, :]
+
+        self.posterior = self.dags, tree_select(_posterior[1], is_dag), _posterior[2][is_dag] - logsumexp(_posterior[2][is_dag])
+        self.full_posterior = _posterior
+
 
     def sample(self, num_samples):
         self.key, subk = random.split(self.key)

@@ -170,7 +170,9 @@ def parse_args():
         args.dibs_graph_prior = "sf"
 
     if args.reward_node == -1:
-        args.reward_node = random.randint(0,args.num_nodes)
+        args.reward_node = random.randint(0,args.num_nodes-1)
+        print("reward node not defined")
+        print(args.reward_node)
 
     return args
 
@@ -237,6 +239,8 @@ def causal_experimental_design_loop(args):
             nonlinear = False
         )
 
+    if args.env == "erdos":
+            args.dibs_graph_prior = "er"
     # if args.env == 'bif':
     #     env = ENVS[args.env](args.bif_file, args.bif_mapping, logger=logger)
     #     args.num_nodes = env.num_nodes
