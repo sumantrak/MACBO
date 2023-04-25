@@ -25,22 +25,25 @@ class ValueAcquisitionStrategy(object):
             self.target[i], _ = func(self.nodes, value_samplers, **kargs)
 
         self.func_max = np.amax(self.target)
+        # print('function max')
+        # print(self.func_max)
         _max_x_idx, _max_j_idx = np.unravel_index(
             np.argmax(self.target, axis=None), self.target.shape
         )
+        # print("Node and value")
+        
         self.max_iter, self.max_x, self.max_j = (
             _max_x_idx,
             self.values[_max_x_idx][self.nodes[_max_j_idx]],
             self.nodes[_max_j_idx],
         )
-
+        # print(self.max_j,self.max_x)
         return self
 
 class UniformMaxValueAcquisitionStrategy(ValueAcquisitionStrategy):
     def __init__(self, nodes, args):
         super().__init__(nodes, args)
         self.intervention_value_prior = lambda size: np.random.uniform(-10,10,size=(size, args.num_nodes))
-        self._force_iters = 100
 
 class BOValueAcquisitionStrategy(ValueAcquisitionStrategy):
     def __init__(self, nodes, args):

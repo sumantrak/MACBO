@@ -4,7 +4,7 @@ from scipy.special import logsumexp
 
 from .acquisition_strategy import AcquisitionStrategy
 from collections import defaultdict
-
+from tqdm import tqdm
 
 def entropy(p):
     return -sum(p * np.log(p))
@@ -14,8 +14,8 @@ def logmeanexp(A, axis):
     return logsumexp(A, axis=axis)-np.log(A.shape[axis])
 
 class MACBOStrategy(AcquisitionStrategy):
-    def _score_for_value(self, nodes, value_samplers, beta):
-        print("macbosfv")
+    def _score_for_value(self, nodes, value_samplers, beta=2):
+        # print("macbosfv")
         # DAGs x Interventions x Samples x Nodes - y[t][m]
         reward_node = self.reward_node
         n_samples = self.num_samples
@@ -25,46 +25,71 @@ class MACBOStrategy(AcquisitionStrategy):
 
         mu = datapoints[:,:,:,reward_node].mean(2).mean(0)
         sigma = datapoints[:,:,:,reward_node].mean(2).std(0, ddof=1)
-        print(mu)
-        print(sigma)
+        # print("mu and sigma")
+        # print(mu)
+        # print(sigma)
         reward = mu + beta*sigma
         return reward, {}
-
     def acquire(self, nodes, iteration):
-        print("macboacquire")
-        # n_boot = len(self.model.dags)
+        n_boot = len(self.model.dags)
         # current_logpdfs = np.zeros([n_boot, n_boot])
 
         # DAGs x Interventions x Samples x Nodes - y[t][m]
         strategy = self.get_value_strategy(nodes)
 
-        target = -1
-        value = -1
-        beta = 3
-        # pnm1 = None
-        strategy(
+        targets = []
+        values = []
+        for _ in tqdm(range(5),desc="Creating batch"):
+            strategy(
                 self._score_for_value,
-                n_iters =self.args.num_intervention_values,
-                beta = beta)
-        target = strategy.max_j
-        value = strategy.max_x
-        # for _ in range(self.args.batch_size):
-        #     strategy(
-        #         self._score_for_value,
-        #         n_iters =self.args.num_intervention_values,
-        #         pnm1=pnm1)
+                n_iters =self.args.num_intervention_values)
 
 
-        #     pnm1 = strategy.extra[strategy.max_iter]['logpdfs'][strategy.max_j]
+            # pnm1 = strategy.extra[strategy.max_iter]['logpdfs'][strategy.max_j]
 
-        #     targets.append(strategy.max_j)
-        #     values.append(strategy.max_x)
+            targets.append(strategy.max_j)
+            values.append(strategy.max_x)
 
-        # selected_interventions = defaultdict(list)
-        # for value, target in zip(values, targets):
-        #     selected_interventions[target].append(Constant(value))
+        selected_interventions = defaultdict(list)
+        for value, target in zip(values, targets):
+            selected_interventions[target].append(value)
 
-        return (target,value)
+        return selected_interventions
+    # def acquire(self, nodes, iteration):
+    #     print("macboacquire")
+    #     # n_boot = len(self.model.dags)
+    #     # current_logpdfs = np.zeros([n_boot, n_boot])
+
+    #     # DAGs x Interventions x Samples x Nodes - y[t][m]
+    #     strategy = self.get_value_strategy(nodes)
+
+    #     target = -1
+    #     value = -1
+    #     beta = 3
+    #     # pnm1 = None
+    #     strategy(
+    #             self._score_for_value,
+    #             n_iters =self.args.num_intervention_values,
+    #             beta = beta)
+    #     target = strategy.max_j
+    #     value = strategy.max_x
+    #     # for _ in range(self.args.batch_size):
+    #     #     strategy(
+    #     #         self._score_for_value,
+    #     #         n_iters =self.args.num_intervention_values,
+    #     #         pnm1=pnm1)
+
+
+    #     #     pnm1 = strategy.extra[strategy.max_iter]['logpdfs'][strategy.max_j]
+
+    #     #     targets.append(strategy.max_j)
+    #     #     values.append(strategy.max_x)
+
+    #     # selected_interventions = defaultdict(list)
+    #     # for value, target in zip(values, targets):
+    #     #     selected_interventions[target].append(Constant(value))
+
+    #     return (target,value)
 
 class CBEDStrategy(AcquisitionStrategy):
     def _score_for_value(self, nodes, value_samplers):
@@ -125,7 +150,7 @@ class GreedyCBEDStrategy(CBEDStrategy):
         targets = []
         values = []
         pnm1 = None
-        for _ in range(self.args.batch_size):
+        for _ in range(5):
             strategy(
                 self._score_for_value,
                 n_iters =self.args.num_intervention_values,

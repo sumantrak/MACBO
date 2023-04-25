@@ -13,6 +13,7 @@ from strategies import MACBOStrategy
 # from jax import random
 from models.dibs.utils.tree import tree_shapes, tree_select, tree_index
 import igraph as ig
+from tqdm import tqdm
 
 
 def parse_args():
@@ -206,7 +207,7 @@ def causal_exps(args):
     key = random.PRNGKey(758493) 
     key, subk = random.split(key)
     thetas = model.posterior[1]
-    for i,dag in enumerate(model.dags):
+    for i,dag in enumerate(tqdm(model.dags)):
         theta = tree_index(thetas, i)
         print("theta and dag")
         print(theta)
@@ -353,37 +354,11 @@ def causal_experimental_design_loop(args):
 
     # model = MODELS[args.model](args)
     model = DiBS_Linear(args)
-    print("particles w")
-    print(model.particles_w)
     env.plot_graph(os.path.join(args.save_path, "graph.png"))
-
     buffer = ReplayBuffer()
     # sample num_starting_samples initially - not num_samples
     buffer.update(env.sample(args.num_starting_samples))
-
-    # if DAG_BOOTSTRAP:
-    # samples = buffer.data().samples
-    # args.sample_mean = samples.mean(0)
-    # args.sample_std = samples.std(0, ddof=1)
-
-    # precision_matrix = np.linalg.inv(samples.T @ samples / len(samples))
-    # model.precision_matrix = precision_matrix
-
     model.update(buffer.data())
-    print(model.particles_w)
-
-    # key = rnd.PRNGKey(758493) 
-    # key, subk = rnd.split(key)
-    # thetas = model.posterior[1]
-    # for i,dag in enumerate(model.dags):
-    #     theta = tree_index(thetas, i)
-    #     print("theta and dag")
-    #     print(theta)
-    #     print(dag)
-
-    #     obs = model.inference_model.sample_obs(key = subk, n_samples=1, g = ig.Graph.Weighted_Adjacency(dag.tolist()), theta=theta, interv={})
-    #     print(obs)
-
     strategy = MACBOStrategy(model, env, args)
 
     # evaluate
@@ -407,23 +382,14 @@ def causal_experimental_design_loop(args):
     interventionList = []
     estimated_rewards = []
     true_rewards = []
-    for i in range(args.num_batches):
-    #     print(f"====== Experiment {i+1} =======")
-
-    #     # example of information based strategy
+    for i in tqdm(range(args.num_batches), desc="Time Steps"):
+        # example of value maximisation strategy
         valid_interventions = list(range(args.num_nodes))
         valid_interventions.remove(args.reward_node)
-    #     # interventions.append(intervention)
-    #     # node,sampler = intervention
-        # buffer.update(env.intervene(i, 1, node, Constant(sampler),False))
-    #     # avg_reward = env.intervene(i,100,node,Constant(sampler),False).samples.mean(0)[args.reward_node]
-    #     # estimated_rewards.append(model.sample_interventions([node],[sampler],3)[:,:,:,args.reward_node].mean())
-    #     # true_rewards.append(avg_reward)
         interventions = strategy.acquire(valid_interventions, i)
-        print("Interventions acquired")
-        print(interventions)
 
         for node, samplers in interventions.items():
+            print("Sampling node:", node)
             for sampler in samplers:
                 buffer.update(env.intervene(i, 1, node, Constant(sampler), False))
                 interventionList.append((node,sampler))

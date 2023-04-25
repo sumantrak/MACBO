@@ -8,8 +8,11 @@ from utils.logger import Logger
 from envs.samplers import Constant
 from envs import ErdosRenyi, ScaleFree, BifEnvironment, Dream4Environment
 from strategies import MACBOStrategy
-from models import DiBS_Linear
+from models import DiBS_Linear, DagBootstrap
 from replay_buffer import ReplayBuffer
+from jax import random 
+from models.dibs.utils.tree import tree_shapes, tree_select, tree_index
+import igraph as ig
 
 wandb = None
 if 'WANDB_API_KEY' in os.environ:
@@ -47,7 +50,7 @@ def parse_args():
     parser.add_argument(
         "--model",
         type=str,
-        default="dag_bootstrap",
+        default="dibs_linear",
         help="Posterior model to use {vcn, dibs, dag_bootstrap}",
     )
     parser.add_argument("--env", type=str, default="erdos", help="SCM to use")
@@ -57,7 +60,8 @@ def parse_args():
         default="macbo",
         help="Acqusition strategy to use {abcd, random}",
     )
-    parser.add_argument("--num_batches", type=int, default=1, help="Number of timesteps")
+    parser.add_argument("--num_batches", type=int, default=10, help="Number of timesteps")
+    parser.add_argument("--batch_size", type=int, default=10, help="Batch size")
     parser.add_argument(
         "--sparsity_factor",
         type=float,
@@ -145,7 +149,7 @@ def parse_args():
     parser.add_argument(
         "--value_strategy",
         type=str,
-        default="fixed",
+        default="unimax",
         help="Possible strategies: gp-ucb, grid, fixed, sample-dist",
     )
     parser.add_argument(
@@ -166,8 +170,8 @@ def parse_args():
     args = parser.parse_args()
     args.node_range = (-10, 10)
 
-    if args.env== "sf":
-        args.dibs_graph_prior = "sf"
+    # if args.env== "sf":
+    args.dibs_graph_prior = "er"
 
     if args.reward_node == -1:
         args.reward_node = random.randint(0,args.num_nodes-1)
@@ -183,64 +187,156 @@ STRATEGIES = {
 MODELS = {"dibs_linear": DiBS_Linear}
 ENVS = {"erdos": ErdosRenyi, "sf": ScaleFree, "bif": BifEnvironment, "dream4": Dream4Environment}
 
-
-def causal_experimental_design_loop(args):
-
-    # prepare save path
-    args.save_path = os.path.join(
-        args.save_path,
-        "_".join(
-            map(
-                str,
-                [
-                    args.env,
-                    args.data_seed,
-                    args.seed,
-                    args.num_nodes,
-                    args.reward_node,
-                    args.num_starting_samples,
-                    args.model,
-                    args.strategy,
-                    args.value_strategy,
-                    args.exp_edges,
-                    args.noise_type,
-                    args.noise_sigma,
-                    args.bald_temperature,
-                    args.intervention_value,
-                    'nonlinear' if args.nonlinear else 'linear',
-                    args.dream4_name if args.env == 'dream4' else '',
-                    args.id
-                ],
-            )
-        ),
-    )
-
-    if wandb is not None:
-        wandb.init(project="macbo", name=args.id)
-        wandb.config.update(args, allow_val_change=True)
-
-    os.makedirs(args.save_path, exist_ok=True)
-    json.dump(vars(args), open(os.path.join(args.save_path, "config.json"), "w"))
-    # logger = Logger(args.save_path, resume=False, wandb=wandb)
-
-    # set the seeds
-    random.seed(args.seed)
-    torch.manual_seed(args.seed)
-    np.random.seed(args.seed)
-    env = ENVS[args.env](
+def causal_exps(args):
+    print("experiments starting")
+    
+    env = ErdosRenyi(
             num_nodes=args.num_nodes,
-            exp_edges=args.exp_edges,
-            noise_type=args.noise_type,
-            noise_sigma=args.noise_sigma,
-            num_samples=args.num_samples,
+            exp_edges=2,
+            noise_type="isotropic-gaussian",
+            noise_sigma=0.1,
+            num_samples=10,
             mu_prior=2.0,
             sigma_prior=1.0,
             seed=20,
             nonlinear = False
         )
 
-    if args.env == "erdos":
-            args.dibs_graph_prior = "er"
+    print(env.weighted_adjacency_matrix)
+    print(env.sample(1))
+    model = DiBS_Linear(args)
+    env.plot_graph(os.path.join(args.save_path, "graph.png"))
+    buffer = ReplayBuffer()
+    # print(env.sample(args.num_starting_samples))
+    buffer.update(env.sample(args.num_starting_samples))
+    samples = buffer.data().samples
+    args.sample_mean = samples.mean(0)
+    args.sample_std = samples.std(0, ddof=1)
+
+    precision_matrix = np.linalg.inv(samples.T @ samples / len(samples))
+    model.precision_matrix = precision_matrix
+    model.update(buffer.data())
+
+    key = random.PRNGKey(758493) 
+    key, subk = random.split(key)
+    thetas = model.posterior[1]
+    for i,dag in enumerate(model.dags):
+        theta = tree_index(thetas, i)
+        print("theta and dag")
+        print(theta)
+        print(dag)
+
+        obs = model.inference_model.sample_obs(key = subk, n_samples=1, g = ig.Graph.Weighted_Adjacency(dag.tolist()), theta=theta, interv={})
+        print(obs)
+
+
+    valid_interventions = list(range(args.num_nodes))
+    valid_interventions.remove(args.reward_node)
+    strategy = MACBOStrategy(model, env, args)
+    interventions = strategy.acquire(valid_interventions, 1)
+    print("selected interventions")
+    print(interventions)
+    for node, samplers in interventions.items():
+            for sampler in samplers:
+                buffer.update(env.intervene(1, 1, node, Constant(sampler), False))
+
+    # # print(model.sample(5))
+    # print(model.sample_interventions([2,3],[2,2],3)[:,:,:,2].mean(2))
+    
+    # print(buffer.data())
+    # model.update(buffer.data())
+    # valid_interventions = list(range(args.num_nodes))
+    # strategy = MACBOStrategy(model,env,args)
+    # intervention1 = strategy.acquire(valid_interventions, 1)
+    
+    # node1,sampler1 = intervention1
+    model.update(buffer.data())
+    # intervention2 = strategy.acquire(valid_interventions, 1)
+    # print("interventions")
+    # print(intervention1)
+    # print(intervention2)
+    # node2,sampler2 = intervention2
+    # avg_reward1 = env.intervene(1,100,node1,Constant(sampler1),False).samples.mean(0)[args.reward_node]
+    # avg_reward2 = env.intervene(1,100,node2,Constant(sampler2),False).samples.mean(0)[args.reward_node]
+    # standard_reward = env.sample(1000).samples.mean(0)[args.reward_node]
+    # print("avg rewards")
+    # print(avg_reward1)
+    # print(avg_reward2)
+    # print("real interventions")
+    # print(model.sample_interventions([node1],[sampler1],3)[:,:,:,args.reward_node].mean())
+    # print(model.sample_interventions([node2],[sampler2],3)[:,:,:,args.reward_node].mean())
+    # print("non intervened")
+    # print(standard_reward)
+
+def causal_experimental_design_loop(args):
+
+    # prepare save path
+    # args.save_path = os.path.join(
+    #     args.save_path,
+    #     "_".join(
+    #         map(
+    #             str,
+    #             [
+    #                 args.env,
+    #                 args.data_seed,
+    #                 args.seed,
+    #                 args.num_nodes,
+    #                 args.reward_node,
+    #                 args.num_starting_samples,
+    #                 args.model,
+    #                 args.strategy,
+    #                 args.value_strategy,
+    #                 args.exp_edges,
+    #                 args.noise_type,
+    #                 args.noise_sigma,
+    #                 args.bald_temperature,
+    #                 args.intervention_value,
+    #                 'nonlinear' if args.nonlinear else 'linear',
+    #                 args.dream4_name if args.env == 'dream4' else '',
+    #                 args.id
+    #             ],
+    #         )
+    #     ),
+    # )
+
+    # if wandb is not None:
+    #     wandb.init(project="macbo", name=args.id)
+    #     wandb.config.update(args, allow_val_change=True)
+
+    # os.makedirs(args.save_path, exist_ok=True)
+    # json.dump(vars(args), open(os.path.join(args.save_path, "config.json"), "w"))
+    # logger = Logger(args.save_path, resume=False, wandb=wandb)
+
+    # set the seeds
+    # random.seed(args.seed)
+    # torch.manual_seed(args.seed)
+    # np.random.seed(args.seed)
+    # env = ENVS[args.env](
+    #         num_nodes=args.num_nodes,
+    #         exp_edges=args.exp_edges,
+    #         noise_type=args.noise_type,
+    #         noise_sigma=args.noise_sigma,
+    #         num_samples=args.num_samples,
+    #         mu_prior=2.0,
+    #         sigma_prior=1.0,
+    #         seed=20,
+    #         nonlinear = False
+    #     )
+    env = ErdosRenyi(
+            num_nodes=args.num_nodes,
+            exp_edges=2,
+            noise_type="isotropic-gaussian",
+            noise_sigma=0.1,
+            num_samples=10,
+            mu_prior=2.0,
+            sigma_prior=1.0,
+            seed=20,
+            nonlinear = False
+        )
+
+
+    print(env.weighted_adjacency_matrix)
+    print(env.sample(1))
     # if args.env == 'bif':
     #     env = ENVS[args.env](args.bif_file, args.bif_mapping, logger=logger)
     #     args.num_nodes = env.num_nodes
@@ -271,7 +367,8 @@ def causal_experimental_design_loop(args):
 
     # model = MODELS[args.model](args)
     model = DiBS_Linear(args)
-
+    print("particles w")
+    print(model.particles_w)
     env.plot_graph(os.path.join(args.save_path, "graph.png"))
 
     buffer = ReplayBuffer()
@@ -279,15 +376,29 @@ def causal_experimental_design_loop(args):
     buffer.update(env.sample(args.num_starting_samples))
 
     # if DAG_BOOTSTRAP:
-    samples = buffer.data().samples
-    args.sample_mean = samples.mean(0)
-    args.sample_std = samples.std(0, ddof=1)
+    # samples = buffer.data().samples
+    # args.sample_mean = samples.mean(0)
+    # args.sample_std = samples.std(0, ddof=1)
 
-    precision_matrix = np.linalg.inv(samples.T @ samples / len(samples))
-    model.precision_matrix = precision_matrix
+    # precision_matrix = np.linalg.inv(samples.T @ samples / len(samples))
+    # model.precision_matrix = precision_matrix
+
     model.update(buffer.data())
+    print(model.particles_w)
 
-    strategy = MACBOStrategy(model, env, args)
+    # key = rnd.PRNGKey(758493) 
+    # key, subk = rnd.split(key)
+    # thetas = model.posterior[1]
+    # for i,dag in enumerate(model.dags):
+    #     theta = tree_index(thetas, i)
+    #     print("theta and dag")
+    #     print(theta)
+    #     print(dag)
+
+    #     obs = model.inference_model.sample_obs(key = subk, n_samples=1, g = ig.Graph.Weighted_Adjacency(dag.tolist()), theta=theta, interv={})
+    #     print(obs)
+
+    # strategy = MACBOStrategy(model, env, args)
 
     # evaluate
     # logger.log_metrics(
@@ -306,40 +417,55 @@ def causal_experimental_design_loop(args):
             "Assuming value sampler corresponds to `Constant` distribution. Code can break/could lead to wrong results if using any other sampler"
         )
 
-    interventions = []
+    eshd = []
+    interventionList = []
     estimated_rewards = []
     true_rewards = []
-    for i in range(args.num_batches):
-        print(f"====== Experiment {i+1} =======")
+    # for i in range(args.num_batches):
+    #     print(f"====== Experiment {i+1} =======")
 
-        # example of information based strategy
-        valid_interventions = list(range(args.num_nodes))
-        intervention = strategy.acquire(valid_interventions, i)
-        interventions.append(intervention)
-        node,sampler = intervention
-        buffer.update(env.intervene(i, 1, node, Constant(sampler),False))
-        avg_reward = env.intervene(i,100,node,Constant(sampler),False).samples.mean(0)[args.reward_node]
-        estimated_rewards.append(model.sample_interventions([node],[sampler],3)[:,:,:,args.reward_node].mean())
-        true_rewards.append(avg_reward)
-        model.update(buffer.data())
-        # logger.log_metrics(
-        #     {
-        #         "eshd": env.eshd(model, 1000, double_for_anticausal=False),
-        #         # "sid": -1 if args.no_sid else env.sid(model, 1000, force_ensemble=True),
-        #         "auroc":  env.auroc(model, 1000),
-        #         "auprc":  env.auprc(model, 1000),
-        #         "observational_samples": buffer.n_obs,
-        #         "interventional_samples": buffer.n_int,
-        #         "ensemble_size": len(model.dags),
-        #         "reward": avg_reward
-        #     }
-        # )
+    #     # example of information based strategy
+    #     valid_interventions = list(range(args.num_nodes))
+    #     valid_interventions.remove(args.reward_node)
+    #     # interventions.append(intervention)
+    #     # node,sampler = intervention
+    #     # buffer.update(env.intervene(i, 1, node, Constant(sampler),False))
+    #     # avg_reward = env.intervene(i,100,node,Constant(sampler),False).samples.mean(0)[args.reward_node]
+    #     # estimated_rewards.append(model.sample_interventions([node],[sampler],3)[:,:,:,args.reward_node].mean())
+    #     # true_rewards.append(avg_reward)
+    #     interventions = strategy.acquire(valid_interventions, i)
+    #     print("Interventions acquired")
+    #     print(interventions)
+
+    #     for node, samplers in interventions.items():
+    #         for sampler in samplers:
+    #             buffer.update(env.intervene(i, 1, node, Constant(sampler), False))
+    #             interventionList.append((node,sampler))
+    #             avg_reward = env.intervene(i,10,node,Constant(sampler),False).samples.mean(axis=0)[args.reward_node]
+    #             estimated_rewards.append(model.sample_interventions([node],[sampler],3)[:,:,:,args.reward_node].mean())
+    #             true_rewards.append(avg_reward)
+
+    #     model.update(buffer.data())
+    #     eshd.append(env.eshd(model, 1000, double_for_anticausal=False))
+    #     # logger.log_metrics(
+    #     #     {
+    #     #         "eshd": env.eshd(model, 1000, double_for_anticausal=False),
+    #     #         # "sid": -1 if args.no_sid else env.sid(model, 1000, force_ensemble=True),
+    #     #         "auroc":  env.auroc(model, 1000),
+    #     #         "auprc":  env.auprc(model, 1000),
+    #     #         "observational_samples": buffer.n_obs,
+    #     #         "interventional_samples": buffer.n_int,
+    #     #         "ensemble_size": len(model.dags),
+    #     #         "reward": avg_reward
+    #     #     }
+    #     # )
     
-    print(interventions)
+    print(interventionList)
     print(estimated_rewards)
     print(true_rewards)
+    print(eshd)
 
 
 if __name__ == "__main__":
     args = parse_args()
-    causal_experimental_design_loop(args)
+    causal_exps(args)

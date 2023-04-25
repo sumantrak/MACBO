@@ -307,6 +307,7 @@ class DiBS_Linear(PosteriorModel):
             obs_noise=args.noise_sigma,
             mean_edge=0.0,
             sig_edge=2.0,
+            verbose=True
         )
 
         def log_prior(single_w_prob):
@@ -330,7 +331,7 @@ class DiBS_Linear(PosteriorModel):
 
         # SVGD + DiBS hyperparams
         self.n_particles = 20
-        self.n_steps = lambda t: 3000 #int(100*t/15)
+        self.n_steps = 3000 #int(100*t/15)
 
         # initialize kernel and algorithm
         kernel = JointAdditiveFrobeniusSEKernel(
@@ -348,10 +349,8 @@ class DiBS_Linear(PosteriorModel):
         self.particles_z, self.particles_w = self.model.sample_initial_random_particles(
             key=subk, n_particles=self.n_particles, model = self.inference_model, n_vars=self.num_nodes
         )
+        # print(self.particles_w)
 
-        particles_z, particles_w = self.model.sample_initial_random_particles(
-            key=subk, n_particles=20, model = self.inference_model, n_vars=4
-        )
 
     def update(self, data):
         data_samples = jnp.array(data.samples)
@@ -369,12 +368,14 @@ class DiBS_Linear(PosteriorModel):
 
         self.particles_z, self.particles_w = self.model.sample_particles(
             key=subk,
-            n_steps=self.n_steps(data_samples.shape[0]),
+            n_steps=self.n_steps,
             init_particles_z=self.particles_z,
             init_particles_theta=self.particles_w,
             data=data_samples,
             interv_targets=interv_targets,
         )
+        # print("Updated particles")
+        # print(self.particles_w)
         # self.update_dist(data_samples, interv_targets)
         self.update_dist()
 
@@ -413,13 +414,14 @@ class DiBS_Linear(PosteriorModel):
         #self.key, subk = random.split(self.key)
         all_dags = []
         for i, dag in enumerate(self.dags):
-            print(i)
-            theta = thetas[i]
+            theta = tree_index(thetas, i)
             all_interventions = []
             for node, sampler in zip(nodes, value_samplers):
                 self.key, subk = random.split(self.key)
                 try:
-                    all_interventions.append(self.inference_model.sample_obs(key = subk, n_samples=nsamples, g = ig.Graph.Weighted_Adjacency(dag.tolist()), theta = theta, interv= {node : sampler}))
+                    intervention_observations = self.inference_model.sample_obs(key = subk, n_samples=nsamples, g = ig.Graph.Adjacency(dag.tolist()), theta = theta, interv= {node : sampler})
+                    # print(intervention_observations)
+                    all_interventions.append(intervention_observations)
                 except:
                     print("cycles might be present")
             if len(all_interventions)>0:        
