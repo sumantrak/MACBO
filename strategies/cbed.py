@@ -14,7 +14,7 @@ def logmeanexp(A, axis):
     return logsumexp(A, axis=axis)-np.log(A.shape[axis])
 
 class MACBOStrategy(AcquisitionStrategy):
-    def _score_for_value(self, nodes, value_samplers, beta=2):
+    def _score_for_value(self, nodes, value_samplers, beta=0.5):
         # print("macbosfv")
         # DAGs x Interventions x Samples x Nodes - y[t][m]
         reward_node = self.reward_node
@@ -39,7 +39,7 @@ class MACBOStrategy(AcquisitionStrategy):
 
         targets = []
         values = []
-        for _ in tqdm(range(5),desc="Creating batch"):
+        for _ in tqdm(range(1),desc="Creating batch"):
             strategy(
                 self._score_for_value,
                 n_iters =self.args.num_intervention_values)

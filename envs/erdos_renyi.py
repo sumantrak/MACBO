@@ -19,7 +19,7 @@ class ErdosRenyi(CausalEnvironment):
 	"""
 
 
-	def __init__(self, num_nodes, exp_edges = 1, noise_type='isotropic-gaussian', noise_sigma = 1.0, num_samples=1000, mu_prior = 2.0, sigma_prior = 1.0, seed = 10, nonlinear = False, logger = None):
+	def __init__(self, num_nodes, exp_edges = 1, noise_type='isotropic-gaussian', noise_sigma = 1.0, num_samples=1000, mu_prior = 0.5, sigma_prior = 2.0, seed = 10, nonlinear = False, logger = None):
 		self.noise_sigma = noise_sigma
 		p = float(exp_edges)/ (num_nodes-1)
 		acyclic = 0

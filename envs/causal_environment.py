@@ -93,7 +93,7 @@ class CausalEnvironment(torch.utils.data.Dataset):
     def build_graph(self):
         """ Initilises the adjacency matrix and the weighted adjacency matrix"""
 
-        self.adjacency_matrix = nx.to_numpy_matrix(self.graph)
+        self.adjacency_matrix = nx.to_numpy_array(self.graph)
 
         if self.nonlinear:
             self.weighted_adjacency_matrix = None
@@ -218,7 +218,7 @@ class CausalEnvironment(torch.utils.data.Dataset):
         self.rng_jax, subk = random.split(self.rng_jax)
         if graph is None:
             graph = self.graph
-        mat = nx.to_numpy_matrix(graph)
+        mat = nx.to_numpy_array(graph)
         g = ig.Graph.Weighted_Adjacency(mat.tolist())
         samples = self.conditionals.sample_obs(key=subk, n_samples=num_samples, g=g, theta=self.weights, node=node, value_sampler = value_sampler)
         return Data(samples=samples, intervention_node=-1)
@@ -247,7 +247,7 @@ class CausalEnvironment(torch.utils.data.Dataset):
             cpdag = None
 
         G = nx.DiGraph(A)
-        g = nx.convert_matrix.from_numpy_matrix(A, create_using=nx.DiGraph)
+        g = nx.convert_matrix.from_numpy_array(A, create_using=nx.DiGraph)
 
         options = {
             "font_size": 28,
@@ -292,7 +292,7 @@ class CausalEnvironment(torch.utils.data.Dataset):
         nx.draw_networkx_labels(g, pos, labels, font_color="white")
 
         nx.draw_networkx_edges(
-            nx.convert_matrix.from_numpy_matrix(NON_CPDAG_A, create_using=nx.DiGraph),
+            nx.convert_matrix.from_numpy_array(NON_CPDAG_A, create_using=nx.DiGraph),
             pos,
             style="solid",
             node_size=1000,
@@ -302,7 +302,7 @@ class CausalEnvironment(torch.utils.data.Dataset):
         )
 
         collection = nx.draw_networkx_edges(
-            nx.convert_matrix.from_numpy_matrix(CPDAG_A, create_using=nx.DiGraph),
+            nx.convert_matrix.from_numpy_array(CPDAG_A, create_using=nx.DiGraph),
             pos,
             style="dashed",
             node_size=1000,
@@ -418,4 +418,5 @@ class CausalEnvironment(torch.utils.data.Dataset):
             for G, theta in zip(Gs, thetas):
                 liks.append(model.interventional_likelihood(graph = G, theta = theta, data=data, interventions = None).sum())
         return -np.array(liks).mean().astype(np.float64)
+
 

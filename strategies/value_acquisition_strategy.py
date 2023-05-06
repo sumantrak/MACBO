@@ -13,9 +13,9 @@ class ValueAcquisitionStrategy(object):
         self.intervention_value_prior = lambda size: np.zeros((size, args.num_nodes))
         self._force_iters = None
 
-    def __call__(self, func, n_iters=5, **kargs):
-        n_iters = self._force_iters if self._force_iters is not None else n_iters
-
+    def __call__(self, func, n_iters=20, **kargs):
+        #n_iters = self._force_iters if self._force_iters is not None else n_iters
+        n_iters=20
         self.values = self.intervention_value_prior(n_iters)
         self.target = np.zeros((n_iters, len(self.nodes)))
         self.extra = [{}]*len(self.nodes)
@@ -43,7 +43,8 @@ class ValueAcquisitionStrategy(object):
 class UniformMaxValueAcquisitionStrategy(ValueAcquisitionStrategy):
     def __init__(self, nodes, args):
         super().__init__(nodes, args)
-        self.intervention_value_prior = lambda size: np.random.uniform(-10,10,size=(size, args.num_nodes))
+        #self.intervention_value_prior = lambda size: np.random.uniform(-10,10,size=(size, args.num_nodes))
+        self.intervention_value_prior = lambda size: np.tile(np.linspace(-10,10,num=20),[args.num_nodes,1]).T
 
 class BOValueAcquisitionStrategy(ValueAcquisitionStrategy):
     def __init__(self, nodes, args):

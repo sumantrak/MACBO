@@ -3,10 +3,12 @@ import argparse
 import random
 import json
 import numpy as np
+import torch
+import jax
 from models import DiBS_Linear
 from envs import ErdosRenyi
 from replay_buffer import ReplayBuffer
-import torch
+#import torch
 import warnings
 from envs.samplers import Constant
 from strategies import MACBOStrategy
@@ -296,7 +298,7 @@ def causal_experimental_design_loop(args):
 
     # set the seeds
     random.seed(args.seed)
-    torch.manual_seed(args.seed)
+ #   torch.manual_seed(args.seed)
     np.random.seed(args.seed)
     env = ErdosRenyi(
             num_nodes=args.num_nodes,
@@ -304,8 +306,8 @@ def causal_experimental_design_loop(args):
             noise_type=args.noise_type,
             noise_sigma=args.noise_sigma,
             num_samples=args.num_samples,
-            mu_prior=2.0,
-            sigma_prior=1.0,
+            mu_prior=1.0,
+            sigma_prior=2.0,
             seed=20,
             nonlinear = False
         )
@@ -315,8 +317,8 @@ def causal_experimental_design_loop(args):
     #         noise_type="isotropic-gaussian",
     #         noise_sigma=0.1,
     #         num_samples=10,
-    #         mu_prior=2.0,
-    #         sigma_prior=1.0,
+    #         mu_prior=1.0,
+    #         sigma_prior=2.0,
     #         seed=20,
     #         nonlinear = False
     #     )
@@ -381,6 +383,7 @@ def causal_experimental_design_loop(args):
     eshd = []
     interventionList = []
     estimated_rewards = []
+    estimated_variance = []
     true_rewards = []
     for i in tqdm(range(args.num_batches), desc="Time Steps"):
         # example of value maximisation strategy
@@ -391,10 +394,13 @@ def causal_experimental_design_loop(args):
         for node, samplers in interventions.items():
             print("Sampling node:", node)
             for sampler in samplers:
-                buffer.update(env.intervene(i, 1, node, Constant(sampler), False))
+                buffer.update(env.intervene(i, 5, node, Constant(sampler), False))
                 interventionList.append((node,sampler))
                 avg_reward = env.intervene(i,10,node,Constant(sampler),False).samples.mean(axis=0)[args.reward_node]
-                estimated_rewards.append(model.sample_interventions([node],[sampler],3)[:,:,:,args.reward_node].mean())
+                #estimated_rewards.append(model.sample_interventions([node],[sampler],3)[:,:,:,args.reward_node].mean())
+                model_samples = model.sample_interventions([node],[sampler],5)[:,:,:,args.reward_node]
+                estimated_rewards.append(model_samples.mean())
+                estimated_variance.append(model_samples.std(ddof=1))
                 true_rewards.append(avg_reward)
 
         model.update(buffer.data())
@@ -414,6 +420,7 @@ def causal_experimental_design_loop(args):
     
     print(interventionList)
     print(estimated_rewards)
+    print(estimated_variance)
     print(true_rewards)
     print(eshd)
 

@@ -3,16 +3,19 @@ import argparse
 import random
 import json
 import numpy as np
+import torch
+import jax
 from models import DiBS_Linear
 from envs import ErdosRenyi
 from replay_buffer import ReplayBuffer
-import torch
+#import torch
 import warnings
 from envs.samplers import Constant
 from strategies import MACBOStrategy
 # from jax import random
 from models.dibs.utils.tree import tree_shapes, tree_select, tree_index
 import igraph as ig
+from tqdm import tqdm
 
 
 def parse_args():
@@ -206,7 +209,7 @@ def causal_exps(args):
     key = random.PRNGKey(758493) 
     key, subk = random.split(key)
     thetas = model.posterior[1]
-    for i,dag in enumerate(model.dags):
+    for i,dag in enumerate(tqdm(model.dags)):
         theta = tree_index(thetas, i)
         print("theta and dag")
         print(theta)
@@ -295,7 +298,7 @@ def causal_experimental_design_loop(args):
 
     # set the seeds
     random.seed(args.seed)
-    torch.manual_seed(args.seed)
+ #   torch.manual_seed(args.seed)
     np.random.seed(args.seed)
     env = ErdosRenyi(
             num_nodes=args.num_nodes,
@@ -303,8 +306,8 @@ def causal_experimental_design_loop(args):
             noise_type=args.noise_type,
             noise_sigma=args.noise_sigma,
             num_samples=args.num_samples,
-            mu_prior=2.0,
-            sigma_prior=1.0,
+            mu_prior=1.0,
+            sigma_prior=2.0,
             seed=20,
             nonlinear = False
         )
@@ -314,8 +317,8 @@ def causal_experimental_design_loop(args):
     #         noise_type="isotropic-gaussian",
     #         noise_sigma=0.1,
     #         num_samples=10,
-    #         mu_prior=2.0,
-    #         sigma_prior=1.0,
+    #         mu_prior=1.0,
+    #         sigma_prior=2.0,
     #         seed=20,
     #         nonlinear = False
     #     )
@@ -353,37 +356,11 @@ def causal_experimental_design_loop(args):
 
     # model = MODELS[args.model](args)
     model = DiBS_Linear(args)
-    print("particles w")
-    print(model.particles_w)
     env.plot_graph(os.path.join(args.save_path, "graph.png"))
-
     buffer = ReplayBuffer()
     # sample num_starting_samples initially - not num_samples
     buffer.update(env.sample(args.num_starting_samples))
-
-    # if DAG_BOOTSTRAP:
-    # samples = buffer.data().samples
-    # args.sample_mean = samples.mean(0)
-    # args.sample_std = samples.std(0, ddof=1)
-
-    # precision_matrix = np.linalg.inv(samples.T @ samples / len(samples))
-    # model.precision_matrix = precision_matrix
-
     model.update(buffer.data())
-    print(model.particles_w)
-
-    # key = rnd.PRNGKey(758493) 
-    # key, subk = rnd.split(key)
-    # thetas = model.posterior[1]
-    # for i,dag in enumerate(model.dags):
-    #     theta = tree_index(thetas, i)
-    #     print("theta and dag")
-    #     print(theta)
-    #     print(dag)
-
-    #     obs = model.inference_model.sample_obs(key = subk, n_samples=1, g = ig.Graph.Weighted_Adjacency(dag.tolist()), theta=theta, interv={})
-    #     print(obs)
-
     strategy = MACBOStrategy(model, env, args)
 
     # evaluate
@@ -408,31 +385,22 @@ def causal_experimental_design_loop(args):
     estimated_rewards = []
     estimated_variance = []
     true_rewards = []
-    for i in range(args.num_batches):
-    #     print(f"====== Experiment {i+1} =======")
-
-    #     # example of information based strategy
+    for i in tqdm(range(args.num_batches), desc="Time Steps"):
+        # example of value maximisation strategy
         valid_interventions = list(range(args.num_nodes))
         valid_interventions.remove(args.reward_node)
-    #     # interventions.append(intervention)
-    #     # node,sampler = intervention
-        # buffer.update(env.intervene(i, 1, node, Constant(sampler),False))
-    #     # avg_reward = env.intervene(i,100,node,Constant(sampler),False).samples.mean(0)[args.reward_node]
-    #     # estimated_rewards.append(model.sample_interventions([node],[sampler],3)[:,:,:,args.reward_node].mean())
-    #     # true_rewards.append(avg_reward)
         interventions = strategy.acquire(valid_interventions, i)
-        print("Interventions acquired")
-        print(interventions)
 
         for node, samplers in interventions.items():
+            print("Sampling node:", node)
             for sampler in samplers:
-                buffer.update(env.intervene(i, 1, node, Constant(sampler), False))
+                buffer.update(env.intervene(i, 5, node, Constant(sampler), False))
                 interventionList.append((node,sampler))
                 avg_reward = env.intervene(i,10,node,Constant(sampler),False).samples.mean(axis=0)[args.reward_node]
+                #estimated_rewards.append(model.sample_interventions([node],[sampler],3)[:,:,:,args.reward_node].mean())
                 model_samples = model.sample_interventions([node],[sampler],5)[:,:,:,args.reward_node]
                 estimated_rewards.append(model_samples.mean())
                 estimated_variance.append(model_samples.std(ddof=1))
-                        
                 true_rewards.append(avg_reward)
 
         model.update(buffer.data())
@@ -455,6 +423,14 @@ def causal_experimental_design_loop(args):
     print(estimated_variance)
     print(true_rewards)
     print(eshd)
+    est_rews_np = np.asarray(estimated_rewards)
+    est_vars_np = np.asarray(estimated_variance)
+    true_rews_np = np.asarray(true_rewards)
+    eshd_np = np.asarray(eshd_np)
+    est_rews_np.tofile(os.path.join(args.save_path,'estimated_rewards.csv'), sep = ',')
+    est_vars_np.tofile(os.path.join(args.save_path,'estimated_variance.csv'),sep = ',')
+    true_rews_np.tofile(os.path.join(args.save_path,'true_rewards.csv'), sep = ',')
+    eshd_np.tofile(os.path.join(args.save_path,'eshd.csv'), sep = ',')
 
 
 

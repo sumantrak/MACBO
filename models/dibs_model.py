@@ -331,7 +331,7 @@ class DiBS_Linear(PosteriorModel):
 
         # SVGD + DiBS hyperparams
         self.n_particles = 20
-        self.n_steps = 3000 #int(100*t/15)
+        self.n_steps = 20000 #int(100*t/15)
 
         # initialize kernel and algorithm
         kernel = JointAdditiveFrobeniusSEKernel(
